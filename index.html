@@ -77,6 +77,7 @@
         <label class="fort">Prix de vente HT<input data-champ="prix_ht" inputmode="decimal"></label>
         <label>TVA %<input data-champ="tva_pct" inputmode="decimal"></label>
         <label>Marge visée %<input data-champ="marge_cible_pct" inputmode="decimal"></label>
+        <label id="champ-charges-ca">Cotisations sur le chiffre d'affaires % <small>auto-entrepreneur</small><input data-champ="charges_ca_pct" inputmode="decimal"></label>
       </div>
       <p class="aide">Taux repris de vos réglages : frais fixes <b id="t-fixes"></b> par heure, taux horaire facturé <b id="t-taux"></b>.
         <button type="button" class="lien" id="appliquer-reglages">Reprendre mes réglages actuels</button></p>
@@ -152,10 +153,32 @@
       <label class="large">Nom de l'entreprise<input data-reglage="entreprise" maxlength="80"></label>
       <label>Devise<input data-reglage="devise" maxlength="4"></label>
     </div>
+    <h3>Mon statut</h3>
+    <div class="champs">
+      <label class="large">Statut
+        <select data-reglage="statut" id="statut">
+          <option value="classique">Entreprise classique (charges sur les salaires)</option>
+          <option value="micro">Auto-entrepreneur / micro-entreprise (charges sur le chiffre d'affaires)</option>
+        </select></label>
+    </div>
+    <div id="bloc-micro" hidden>
+      <div class="champs">
+        <label class="large">Activité <small>remplit les taux ci-dessous, que vous pouvez corriger</small>
+          <select data-reglage="activite" id="activite"></select></label>
+      </div>
+      <label class="case"><input id="versement-liberatoire" type="checkbox"> J'ai opté pour le versement libératoire de l'impôt sur le revenu</label>
+      <div class="champs" style="margin-top:10px">
+        <label>Cotisations sociales % <small>du chiffre d'affaires</small><input data-reglage="cotisations_ca_pct" inputmode="decimal"></label>
+        <label>Impôt % <small>versement libératoire</small><input data-reglage="impot_ca_pct" inputmode="decimal"></label>
+        <label>Formation professionnelle %<input data-reglage="cfp_pct" inputmode="decimal"></label>
+        <label>Taxe pour frais de chambre %<input data-reglage="tfc_pct" inputmode="decimal"></label>
+      </div>
+      <p class="aide">Taux 2026 du <a href="https://www.urssaf.fr/accueil/outils-documentation/simulateurs/cotisations-auto-entrepeneur.html" target="_blank" rel="noopener">simulateur officiel de l'Urssaf</a>. Chaque prestation compte le total de ces pourcentages de son prix de vente comme une charge. Si vous bénéficiez de l'Acre, corrigez le taux de cotisations. En franchise de TVA, mettez la TVA à 0 plus bas.</p>
+    </div>
     <h3>Ce que me coûte une heure de travail</h3>
     <div class="champs">
-      <label>Coût d'une heure <small>salaire brut, hors charges</small><input data-reglage="salaire_horaire" inputmode="decimal"></label>
-      <label>Charges sociales %<input data-reglage="charges_pct" inputmode="decimal"></label>
+      <label><span id="libelle-salaire">Coût d'une heure <small>salaire brut, hors charges</small></span><input data-reglage="salaire_horaire" inputmode="decimal"></label>
+      <label id="champ-charges">Charges sociales % <small>sur le salaire</small><input data-reglage="charges_pct" inputmode="decimal"></label>
       <label>Frais fixes par mois <small>loyer, assurances, abonnements…</small><input data-reglage="frais_fixes_mensuels" inputmode="decimal"></label>
       <label>Heures facturables par mois<input data-reglage="heures_facturables_mois" inputmode="decimal"></label>
     </div>
@@ -193,7 +216,7 @@
     <h2>Application</h2>
     <button type="button" id="installer" class="principal" hidden>Installer sur ce téléphone</button>
     <p class="aide" id="aide-installation">Pour l'avoir comme une application, avec son icône : ouvrez le menu du navigateur (⋮ sur Android, bouton Partager sur iPhone) puis « Ajouter à l'écran d'accueil ».</p>
-    <p class="aide">Une fois ouverte une première fois, l'application fonctionne sans connexion. Version 0b699e71.</p>
+    <p class="aide">Une fois ouverte une première fois, l'application fonctionne sans connexion. Version e2b4c832.</p>
   </div>
 </section>
 </main>
