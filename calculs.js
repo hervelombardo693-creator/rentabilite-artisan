@@ -30,7 +30,7 @@
     taux_horaire: ['Taux horaire facturé', 0, 10000],
     charges_ca_pct: ["Cotisations sur le chiffre d'affaires", 0, 80],
   };
-  const STATUTS = ['classique', 'micro'];
+  const STATUTS = ['classique', 'micro', 'sarl'];
   // Auto-entrepreneur, taux 2026 en % du chiffre d'affaires : [libellé, cotisations, versement libératoire,
   // formation professionnelle, taxe pour frais de chambre]. Mêmes valeurs et même source que ../calculs.py
   // (simulateur officiel de l'Urssaf, relevé le 2026-10-04).
@@ -43,6 +43,18 @@
     cipav: ['Profession libérale réglementée (Cipav)', 23.2, 2.2, 0.2, 0],
   };
   const ACTIVITE_DEFAUT = 'artisan_service';
+  // SARL / EURL : qui fait le travail → [libellé, base de la rémunération saisie, charges en % de cette base].
+  // Ordres de grandeur relevés sur les simulateurs de l'Urssaf pour 2026 (voir ../calculs.py), modifiables à l'écran.
+  const PROFILS_SARL = {
+    gerant_majoritaire: ['Gérant majoritaire (travailleur non salarié)', 'net', 44],
+    gerant_minoritaire: ['Gérant minoritaire ou égalitaire (assimilé salarié)', 'net', 80],
+    salarie_2000: ['Salarié, environ 2 000 € brut par mois', 'brut', 12],
+    salarie_2600: ['Salarié, environ 2 600 € brut par mois', 'brut', 28],
+    salarie_3500: ['Salarié, environ 3 500 € brut par mois', 'brut', 37],
+  };
+  const PROFIL_DEFAUT = 'gerant_majoritaire';
+  // Impôt sur les sociétés des petites entreprises : 15 % jusqu'à 42 500 € de bénéfice annuel, 25 % au-delà.
+  const IS_TAUX_REDUIT = 15n, IS_PLAFOND_REDUIT = 4250000n /* centimes */, IS_TAUX_NORMAL = 25n;
   const REGLAGES = {
     cotisations_ca_pct: ["Cotisations sociales sur le chiffre d'affaires", 21.2, 60],
     impot_ca_pct: ["Impôt sur le chiffre d'affaires", 0, 15],
@@ -144,6 +156,15 @@
       // complet (centimes) > taux_horaire × (1 − charges ÷ 100)
       cout_horaire_trop_eleve: r.taux_horaire > 0n && complet * S * S > r.taux_horaire * (100n * S - chargesCa),
     };
+  }
+
+  // Impôt sur les sociétés estimé pour un mois de bénéfice (en euros), comme si chaque mois de l'année lui
+  // ressemblait : impôt annuel sur bénéfice × 12, divisé par 12. Pas d'impôt sur un mois sans bénéfice.
+  function impotSocietesMensuel(benefice) {
+    const annuel = centimes(decimal(Math.abs(benefice), 'Bénéfice', 1e12)) * (benefice < 0 ? -12n : 12n);
+    if (annuel <= 0n) return 0;
+    const reduit = annuel < IS_PLAFOND_REDUIT ? annuel : IS_PLAFOND_REDUIT;
+    return euros(diviser(reduit * IS_TAUX_REDUIT + (annuel - reduit) * IS_TAUX_NORMAL, 1200n));
   }
 
   // Données d'une nouvelle prestation, pré-remplies avec les réglages de l'entreprise.
@@ -258,5 +279,5 @@
   // montant() reçoit des centimes entiers ; montantNombre() accepte un nombre déjà en euros (affichage, fiche)
   const montantNombre = (x, devise = '€') => montant(BigInt(Math.round(Number(x) * 100)), devise);
 
-  globalThis.Calculs = { CHAMPS, REGLAGES, STATUTS, ACTIVITES_MICRO, ACTIVITE_DEFAUT, Erreur, valider, normaliser, tauxDerives, modele, calculer, nombre, montantNombre };
+  globalThis.Calculs = { CHAMPS, REGLAGES, STATUTS, ACTIVITES_MICRO, ACTIVITE_DEFAUT, PROFILS_SARL, PROFIL_DEFAUT, impotSocietesMensuel, Erreur, valider, normaliser, tauxDerives, modele, calculer, nombre, montantNombre };
 })();
