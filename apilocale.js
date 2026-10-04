@@ -21,9 +21,23 @@
   }
 
   function reglages(base) {
-    const r = { entreprise: '', devise: '€', statut: 'classique', activite: C.ACTIVITE_DEFAUT, profil: C.PROFIL_DEFAUT, verifies: false };
+    const r = { entreprise: '', devise: '€', statut: 'classique', activite: C.ACTIVITE_DEFAUT, profil: C.PROFIL_DEFAUT, frais_detail: {}, verifies: false };
     for (const [nom, [, defaut]] of Object.entries(C.REGLAGES)) r[nom] = defaut;
-    return Object.assign(r, base.reglages);
+    // des réglages enregistrés par une version antérieure sont convertis à la lecture (voir Calculs.migrer)
+    for (const [cle, v] of Object.entries(C.migrer(base.reglages))) if (cle in r) r[cle] = v;
+    return r;
+  }
+
+  // Frais fixes saisis poste par poste → {poste: montant} (postes vides écartés).
+  function fraisDetailles(detail) {
+    if (detail === null || detail === undefined || detail === '') return {};
+    if (typeof detail !== 'object' || Array.isArray(detail)) throw new Erreur('Données illisibles.');
+    const montants = {};
+    for (const [cle, libelle] of C.POSTES_FRAIS) {
+      const v = C.normaliser({ v: detail[cle] }, { v: [libelle, 0, 10000000] }).v;
+      if (v) montants[cle] = v;
+    }
+    return montants;
   }
 
   // ---------- validation (mêmes règles et messages que server.py) ----------
@@ -35,7 +49,11 @@
   }
   // Réglages saisis → réglages enregistrés (mêmes contrôles que enregistrer_reglages de server.py).
   function reglagesValides(d, verifies) {
-    const r = { entreprise: texte(d.entreprise, "Nom de l'entreprise", 80), devise: texte(d.devise, 'Devise', 4) || '€', verifies,
+    d = C.migrer(d);
+    const detail = fraisDetailles(d.frais_detail);
+    // le détail, s'il existe, fait foi : le total est la somme des postes (en centimes entiers)
+    if (Object.keys(detail).length) d.frais_fixes_mensuels = Object.values(detail).reduce((s, v) => s + Math.round(v * 100), 0) / 100;
+    const r = { frais_detail: detail, entreprise: texte(d.entreprise, "Nom de l'entreprise", 80), devise: texte(d.devise, 'Devise', 4) || '€', verifies,
                 statut: d.statut || 'classique', activite: d.activite || C.ACTIVITE_DEFAUT, profil: d.profil || C.PROFIL_DEFAUT };
     if (!C.STATUTS.includes(r.statut) || !Object.hasOwn(C.ACTIVITES_MICRO, r.activite) || !Object.hasOwn(C.PROFILS_SARL, r.profil)) throw new Erreur('Statut ou activité inconnu.');
     Object.assign(r, C.normaliser(d, C.REGLAGES));
@@ -59,7 +77,7 @@
 
   function etat(base = lire()) {
     const r = reglages(base);
-    return { reglages: r, derives: C.tauxDerives(r), modele: C.modele(r), activites: C.ACTIVITES_MICRO, profils: C.PROFILS_SARL,
+    return { reglages: r, derives: C.tauxDerives(r), modele: C.modele(r), activites: C.ACTIVITES_MICRO, profils: C.PROFILS_SARL, postes_frais: C.POSTES_FRAIS, charges_ei_pct: C.CHARGES_EI_PCT,
              prestations: classees(base.prestations).map(p => sortie(p, r.devise)),
              aujourdhui: aujourdhui(), essai: false, local: false, telephone: { actif: false, adresse: null, code: null } };
   }
@@ -231,6 +249,10 @@ ${alertes ? `<ul>${alertes}</ul>` : ''}
     if (est('GET', 'etat')) return etat(base);
     if (est('GET', 'tableau')) return tableau(moisIso(new URLSearchParams(question).get('mois')));
     if (est('POST', 'calculer')) return C.calculer(corps.donnees, reglages(base).devise);
+    if (est('POST', 'reglages', 'apercu')) {  // synthèse des réglages en cours de saisie, sans rien enregistrer
+      const r = reglagesValides(corps, true);
+      return { derives: C.tauxDerives(r), reglages: r };
+    }
     if (est('POST', 'reglages')) {
       base.reglages = reglagesValides(corps, true);
       ecrire(base);
