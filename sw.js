@@ -2,7 +2,7 @@
 // l'application ; ensuite elle s'ouvre depuis cette copie, avec ou sans réseau. Les données de l'utilisateur ne
 // passent pas par ici (elles sont dans la mémoire du téléphone).
 // VERSION et FICHIERS sont remplis par outils/construire_mobile.py : une nouvelle version remplace l'ancienne copie.
-const VERSION = 'af1a8170';
+const VERSION = '709f1a9b';
 const FICHIERS = ["./", "apilocale.js", "app.js", "calculs.js", "index.html", "manifest.webmanifest", "mobile.js", "style.css", "icone-180.png", "icone-192.png", "icone-512.png", "icone-pleine-512.png"];
 const COPIE = 'rentabilite-' + VERSION;
 
