@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rentabilité Artisan</title>
+<link rel="icon" href="icone-192.png">
+<link rel="stylesheet" href="style.css">
+<meta name="theme-color" content="#1f4e79">
+<meta name="description" content="Calculez ce que vous gagnez vraiment sur une prestation : coûts, marge, prix conseillé. Fonctionne sans connexion, vos données restent dans votre téléphone.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icone-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Rentabilité">
+</head>
+<body>
+<div id="essai" hidden>VERSION D'ESSAI — les données saisies ici ne sont pas vos vraies données</div>
+<header>
+  <h1>Rentabilité Artisan</h1>
+  <nav>
+    <button data-onglet="calcul" class="actif">Calcul</button>
+    <button data-onglet="liste">Mes prestations <span id="compteur" class="pastille"></span></button>
+    <button data-onglet="tableau">Tableau de bord</button>
+    <button data-onglet="reglages">Réglages</button>
+  </nav>
+</header>
+<div id="avis" hidden></div>
+
+<main>
+<div id="a-verifier" class="alerte orange" hidden>Les taux utilisés (coût horaire, frais fixes, coût au km…) sont des valeurs d'exemple.
+  <button type="button" class="lien" data-onglet="reglages">Saisir mes vrais chiffres dans Réglages</button></div>
+<!-- ================= CALCUL ================= -->
+<section id="calcul">
+  <form id="saisie" autocomplete="off" onsubmit="return false">
+    <div class="bloc">
+      <div class="titre-bloc"><h2 id="titre-fiche">Nouvelle prestation</h2><span id="modifie" hidden>modifications non enregistrées</span></div>
+      <div class="champs">
+        <label class="large">Nom de la prestation<input id="nom" maxlength="120" placeholder="ex. Remplacement embrayage"></label>
+        <label>Client<input id="client" maxlength="120"></label>
+        <label>Date<input id="date" type="date"></label>
+      </div>
+      <label class="case"><input id="realisee" type="checkbox"> Prestation réalisée (comptée dans le tableau de bord)</label>
+    </div>
+
+    <div class="bloc">
+      <h2><span class="etape">1</span> Mes coûts <small>hors taxes</small></h2>
+      <h3>Main-d'œuvre <output id="s-mo"></output></h3>
+      <div class="champs">
+        <label>Heures<input data-champ="heures" inputmode="decimal"></label>
+        <label>Personnes<input data-champ="personnes" inputmode="decimal"></label>
+        <label>Coût d'une heure <small>charges comprises</small><input data-champ="cout_horaire" inputmode="decimal"></label>
+      </div>
+      <h3>Achats <output id="s-achats"></output></h3>
+      <div class="champs">
+        <label>Matériaux / pièces<input data-champ="materiaux" inputmode="decimal"></label>
+        <label>Fournitures<input data-champ="fournitures" inputmode="decimal"></label>
+      </div>
+      <h3>Déplacement <output id="s-deplacement"></output></h3>
+      <div class="champs">
+        <label>Kilomètres<input data-champ="km" inputmode="decimal"></label>
+        <label>Coût au km<input data-champ="cout_km" inputmode="decimal"></label>
+        <label>Carburant <small>si non compris dans le coût au km</small><input data-champ="carburant" inputmode="decimal"></label>
+        <label>Péages<input data-champ="peages" inputmode="decimal"></label>
+      </div>
+      <h3>Divers</h3>
+      <div class="champs">
+        <label>Sous-traitance<input data-champ="sous_traitance" inputmode="decimal"></label>
+        <label>Location de matériel<input data-champ="location" inputmode="decimal"></label>
+        <label>Autres coûts<input data-champ="autres" inputmode="decimal"></label>
+      </div>
+    </div>
+
+    <div class="bloc">
+      <h2><span class="etape">2</span> Mon prix</h2>
+      <div class="champs">
+        <label class="fort">Prix de vente HT<input data-champ="prix_ht" inputmode="decimal"></label>
+        <label>TVA %<input data-champ="tva_pct" inputmode="decimal"></label>
+        <label>Marge visée %<input data-champ="marge_cible_pct" inputmode="decimal"></label>
+      </div>
+      <p class="aide">Taux repris de vos réglages : frais fixes <b id="t-fixes"></b> par heure, taux horaire facturé <b id="t-taux"></b>.
+        <button type="button" class="lien" id="appliquer-reglages">Reprendre mes réglages actuels</button></p>
+    </div>
+  </form>
+
+  <button type="button" id="barre-mobile" class="carte vide"></button>
+  <aside id="resultat">
+    <h2><span class="etape">3</span> Ce que je gagne</h2>
+    <div id="carte" class="carte vide">
+      <div id="carte-etat"></div>
+      <div id="carte-gain"></div>
+      <div id="carte-detail"></div>
+    </div>
+    <div id="erreur-calcul" class="alerte rouge" hidden></div>
+    <div id="alertes"></div>
+
+    <table class="chiffres" id="chiffres"></table>
+
+    <h3>Prix conseillé</h3>
+    <div id="conseil"></div>
+    <table class="grille" id="grille"></table>
+    <p class="aide">Cliquez sur un prix pour l'essayer.</p>
+
+    <div class="actions">
+      <button id="enregistrer" class="principal">Enregistrer</button>
+      <button id="dupliquer">Dupliquer</button>
+      <button id="pdf">PDF</button>
+      <button id="nouveau">Nouvelle prestation</button>
+    </div>
+  </aside>
+</section>
+
+<!-- ================= LISTE ================= -->
+<section id="liste" hidden>
+  <div class="barre">
+    <input id="filtre" placeholder="Filtrer par nom ou client…">
+    <select id="filtre-type">
+      <option value="">Tout</option><option value="1">Réalisées</option><option value="0">Simulations</option>
+    </select>
+    <span class="pousse"></span>
+    <button id="export-csv">Exporter en CSV</button>
+  </div>
+  <p class="aide">Cliquez sur un titre de colonne pour trier et comparer vos prestations.</p>
+  <div class="defile"><table class="liste" id="table-liste"></table></div>
+  <p id="liste-vide" class="vide-texte" hidden>Aucune prestation enregistrée pour l'instant.</p>
+</section>
+
+<!-- ================= TABLEAU DE BORD ================= -->
+<section id="tableau" hidden>
+  <div class="barre">
+    <label class="ligne">Mois <input id="mois" type="month"></label>
+    <span id="tb-nombre" class="aide"></span>
+  </div>
+  <div class="tuiles" id="tuiles"></div>
+  <div id="tb-alertes"></div>
+  <div class="deux">
+    <div class="bloc"><h2>Résultat par prestation</h2><div id="g-prestations" class="barres"></div></div>
+    <div class="bloc"><h2>Six derniers mois</h2><div id="g-mois" class="colonnes"></div>
+      <p class="legende"><i class="c-ca"></i> Chiffre d'affaires HT <i class="c-marge"></i> Marge brute</p></div>
+  </div>
+  <div class="deux">
+    <div class="bloc"><h2>Les plus rentables</h2><div id="tb-rentables"></div></div>
+    <div class="bloc"><h2>Déficitaires</h2><div id="tb-deficitaires"></div></div>
+  </div>
+</section>
+
+<!-- ================= RÉGLAGES ================= -->
+<section id="reglages" hidden>
+  <form id="form-reglages" class="bloc etroit" autocomplete="off" onsubmit="return false">
+    <h2>Mon entreprise</h2>
+    <div class="champs">
+      <label class="large">Nom de l'entreprise<input data-reglage="entreprise" maxlength="80"></label>
+      <label>Devise<input data-reglage="devise" maxlength="4"></label>
+    </div>
+    <h3>Ce que me coûte une heure de travail</h3>
+    <div class="champs">
+      <label>Coût d'une heure <small>salaire brut, hors charges</small><input data-reglage="salaire_horaire" inputmode="decimal"></label>
+      <label>Charges sociales %<input data-reglage="charges_pct" inputmode="decimal"></label>
+      <label>Frais fixes par mois <small>loyer, assurances, abonnements…</small><input data-reglage="frais_fixes_mensuels" inputmode="decimal"></label>
+      <label>Heures facturables par mois<input data-reglage="heures_facturables_mois" inputmode="decimal"></label>
+    </div>
+    <div id="r-derives" class="derives"></div>
+    <h3>Ce que je facture</h3>
+    <div class="champs">
+      <label>Taux horaire facturé HT<input data-reglage="taux_horaire" inputmode="decimal"></label>
+      <label>Marge visée %<input data-reglage="marge_cible_pct" inputmode="decimal"></label>
+      <label>TVA %<input data-reglage="tva_pct" inputmode="decimal"></label>
+      <label>Coût au kilomètre<input data-reglage="cout_km" inputmode="decimal"></label>
+    </div>
+    <div class="actions"><button id="enregistrer-reglages" class="principal">Enregistrer mes réglages</button></div>
+    <p class="aide">Ces réglages servent aux nouvelles prestations. Les prestations déjà enregistrées gardent les taux du jour où elles ont été saisies.</p>
+  </form>
+  <div id="bloc-telephone" class="bloc etroit" hidden>
+    <h2>Utiliser sur mon téléphone</h2>
+    <label class="case"><input id="telephone-actif" type="checkbox"> Autoriser l'accès depuis un téléphone relié au même Wi-Fi</label>
+    <div id="telephone-infos" class="derives" hidden>
+      <div>1. Sur le téléphone, ouvrez cette adresse dans le navigateur : <b id="telephone-adresse"></b></div>
+      <div>2. Saisissez ce code (une seule fois par téléphone) : <b id="telephone-code"></b>
+        <button type="button" class="lien" id="telephone-nouveau-code">Changer le code</button></div>
+    </div>
+    <p class="aide">Le PC doit être allumé, ce logiciel ouvert, et le téléphone sur le même Wi-Fi que le PC. Au premier usage, Windows peut demander d'autoriser le logiciel sur le réseau : répondez oui pour le réseau privé.</p>
+  </div>
+  <div class="bloc etroit">
+    <h2>Mes données</h2>
+    <p class="aide">Vos prestations et vos réglages sont enregistrés dans ce téléphone seulement : rien n'est envoyé sur Internet. Si vous changez de téléphone ou effacez les données du navigateur, ils sont perdus : faites une sauvegarde de temps en temps et gardez le fichier ailleurs (e-mail, cloud…).</p>
+    <div class="actions">
+      <button type="button" id="sauvegarder">Sauvegarder mes données</button>
+      <button type="button" id="restaurer">Restaurer une sauvegarde</button>
+      <input type="file" id="fichier-sauvegarde" accept="application/json,.json" hidden>
+    </div>
+  </div>
+  <div class="bloc etroit">
+    <h2>Application</h2>
+    <button type="button" id="installer" class="principal" hidden>Installer sur ce téléphone</button>
+    <p class="aide" id="aide-installation">Pour l'avoir comme une application, avec son icône : ouvrez le menu du navigateur (⋮ sur Android, bouton Partager sur iPhone) puis « Ajouter à l'écran d'accueil ».</p>
+    <p class="aide">Une fois ouverte une première fois, l'application fonctionne sans connexion. Version 0b699e71.</p>
+  </div>
+</section>
+</main>
+<div id="fiche-impression"></div>
+<script src="calculs.js"></script>
+<script src="apilocale.js"></script>
+<script src="app.js"></script>
+<script src="mobile.js"></script>
+</body>
+</html>
