@@ -153,14 +153,18 @@
       <label class="large">Nom de l'entreprise<input data-reglage="entreprise" maxlength="80"></label>
       <label>Devise<input data-reglage="devise" maxlength="4"></label>
     </div>
-    <h3>Mon statut</h3>
+    <h3>⚙️ Mon statut</h3>
     <div class="champs">
       <label class="large">Statut
         <select data-reglage="statut" id="statut">
-          <option value="classique">Entreprise classique (charges sur les salaires)</option>
-          <option value="micro">Auto-entrepreneur / micro-entreprise (charges sur le chiffre d'affaires)</option>
+          <option value="micro">Auto-entrepreneur / micro-entreprise (cotisations sur le chiffre d'affaires)</option>
+          <option value="ei">Entreprise individuelle au réel (cotisations sur ma rémunération)</option>
           <option value="sarl">SARL / EURL (charges sur les rémunérations, impôt sur les sociétés)</option>
+          <option value="classique">Autre : je saisis moi-même le taux de charges</option>
         </select></label>
+    </div>
+    <div id="bloc-ei" hidden>
+      <p class="aide">En entreprise individuelle au réel, les cotisations se calculent sur votre revenu : environ 44 % en plus de ce que vous gardez (ordre de grandeur 2026 du <a href="https://mon-entreprise.urssaf.fr/simulateurs/entreprise-individuelle" target="_blank" rel="noopener">simulateur de l'Urssaf</a>, où vous trouverez votre chiffre exact). Le taux reste modifiable plus bas.</p>
     </div>
     <div id="bloc-sarl" hidden>
       <div class="champs">
@@ -181,25 +185,56 @@
         <label>Formation professionnelle %<input data-reglage="cfp_pct" inputmode="decimal"></label>
         <label>Taxe pour frais de chambre %<input data-reglage="tfc_pct" inputmode="decimal"></label>
       </div>
-      <p class="aide">Taux 2026 du <a href="https://www.urssaf.fr/accueil/outils-documentation/simulateurs/cotisations-auto-entrepeneur.html" target="_blank" rel="noopener">simulateur officiel de l'Urssaf</a>. Chaque prestation compte le total de ces pourcentages de son prix de vente comme une charge. Si vous bénéficiez de l'Acre, corrigez le taux de cotisations. En franchise de TVA, mettez la TVA à 0 plus bas.</p>
+      <p class="aide">Taux 2026 du <a href="https://www.urssaf.fr/accueil/outils-documentation/simulateurs/cotisations-auto-entrepeneur.html" target="_blank" rel="noopener">simulateur officiel de l'Urssaf</a>. Ces cotisations se calculent sur le chiffre d'affaires encaissé, sans déduire vos frais : chaque prestation compte le total de ces pourcentages de son prix de vente comme une charge. Si vous bénéficiez de l'Acre, corrigez le taux de cotisations.</p>
     </div>
-    <h3>Ce que me coûte une heure de travail</h3>
+
+    <h3>👤 Ma rémunération</h3>
     <div class="champs">
-      <label><span id="libelle-salaire">Coût d'une heure <small>salaire brut, hors charges</small></span><input data-reglage="salaire_horaire" inputmode="decimal"></label>
-      <label id="champ-charges"><span id="libelle-charges">Charges sociales % <small>sur le salaire</small></span><input data-reglage="charges_pct" inputmode="decimal"></label>
-      <label>Frais fixes par mois <small>loyer, assurances, abonnements…</small><input data-reglage="frais_fixes_mensuels" inputmode="decimal"></label>
-      <label>Heures facturables par mois<input data-reglage="heures_facturables_mois" inputmode="decimal"></label>
+      <label><span id="libelle-salaire">Rémunération souhaitée par mois</span><input data-reglage="remuneration_mensuelle" inputmode="decimal"></label>
+      <label id="champ-charges"><span id="libelle-charges">Cotisations sociales %</span><input data-reglage="charges_pct" inputmode="decimal"></label>
     </div>
+    <p class="aide" id="aide-remuneration"></p>
+
+    <h3>📊 Mon temps de travail</h3>
+    <div class="champs">
+      <label>Heures travaillées par mois <small>chantier, devis, trajets, administratif…</small><input data-reglage="heures_travaillees_mois" inputmode="decimal"></label>
+      <label>Part facturable % <small>heures réellement vendues à un client</small><input data-reglage="taux_facturation_pct" inputmode="decimal"></label>
+    </div>
+    <p class="aide">Vos coûts du mois sont répartis sur les heures que vous pouvez facturer, pas sur toutes les heures travaillées : devis, achats, administratif et trajets non facturés doivent être payés par les heures vendues.</p>
+
+    <h3>🏢 Mes frais fixes</h3>
+    <div class="champs">
+      <label>Frais fixes par mois <small id="aide-frais">loyer, assurances, abonnements…</small><input data-reglage="frais_fixes_mensuels" inputmode="decimal"></label>
+    </div>
+    <details id="detail-frais">
+      <summary>Détailler mes frais fixes poste par poste</summary>
+      <div class="champs" id="postes-frais"></div>
+      <p class="aide">Dès qu'un poste est rempli, le total ci-dessus est la somme des postes. Les achats, le carburant ou la sous-traitance d'une prestation ne sont pas des frais fixes : ils se saisissent dans la prestation.</p>
+    </details>
+
+    <h3>💰 Mon tarif et ma marge</h3>
+    <div class="champs">
+      <label>Taux horaire facturé HT <small>votre tarif actuel</small><input data-reglage="taux_horaire" inputmode="decimal"></label>
+      <label>Marge visée % <small>part du prix qui reste en bénéfice</small><input data-reglage="marge_cible_pct" inputmode="decimal"></label>
+    </div>
+    <p class="aide">La marge se compte sur le prix de vente : pour 30 % de marge, prix = coût ÷ 0,70 (et non coût × 1,30, qui ne laisse que 23 %).</p>
+
+    <h3>🧾 TVA</h3>
+    <label class="case"><input id="assujetti-tva" type="checkbox"> Je facture la TVA</label>
+    <div class="champs" id="champ-tva" style="margin-top:10px">
+      <label>Taux de TVA %<input data-reglage="tva_pct" inputmode="decimal"></label>
+    </div>
+    <p class="aide">La TVA n'est ni une marge ni un revenu : tous les calculs sont faits hors taxes, elle ne sert qu'à afficher le prix TTC.</p>
+
+    <h3>🚗 Véhicule</h3>
+    <div class="champs">
+      <label>Coût au kilomètre <small>carburant, entretien, pneus, assurance, usure</small><input data-reglage="cout_km" inputmode="decimal"></label>
+    </div>
+    <p class="aide">Les kilomètres et les péages se saisissent dans chaque prestation. Si le véhicule est déjà dans vos frais fixes, mettez ici seulement le carburant, pour ne pas le compter deux fois.</p>
+
     <div id="r-derives" class="derives"></div>
-    <h3>Ce que je facture</h3>
-    <div class="champs">
-      <label>Taux horaire facturé HT<input data-reglage="taux_horaire" inputmode="decimal"></label>
-      <label>Marge visée %<input data-reglage="marge_cible_pct" inputmode="decimal"></label>
-      <label>TVA %<input data-reglage="tva_pct" inputmode="decimal"></label>
-      <label>Coût au kilomètre<input data-reglage="cout_km" inputmode="decimal"></label>
-    </div>
     <div class="actions"><button id="enregistrer-reglages" class="principal">Enregistrer mes réglages</button></div>
-    <p class="aide">Ces réglages servent aux nouvelles prestations. Les prestations déjà enregistrées gardent les taux du jour où elles ont été saisies.</p>
+    <p class="aide">Ces réglages servent aux nouvelles prestations. Les prestations déjà enregistrées gardent les taux du jour où elles ont été saisies. Les calculs sont des estimations de gestion : ils ne remplacent pas le calcul officiel de vos cotisations et de vos impôts.</p>
   </form>
   <div id="bloc-telephone" class="bloc etroit" hidden>
     <h2>Utiliser sur mon téléphone</h2>
@@ -224,7 +259,7 @@
     <h2>Application</h2>
     <button type="button" id="installer" class="principal" hidden>Installer sur ce téléphone</button>
     <p class="aide" id="aide-installation">Pour l'avoir comme une application, avec son icône : ouvrez le menu du navigateur (⋮ sur Android, bouton Partager sur iPhone) puis « Ajouter à l'écran d'accueil ».</p>
-    <p class="aide">Une fois ouverte une première fois, l'application fonctionne sans connexion. Version af1a8170.</p>
+    <p class="aide">Une fois ouverte une première fois, l'application fonctionne sans connexion. Version 709f1a9b.</p>
   </div>
 </section>
 </main>
