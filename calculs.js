@@ -28,8 +28,26 @@
     marge_cible_pct: ['Marge visée', 20, MARGE_MAX],
     frais_fixes_heure: ['Frais fixes par heure', 0, 10000],
     taux_horaire: ['Taux horaire facturé', 0, 10000],
+    charges_ca_pct: ["Cotisations sur le chiffre d'affaires", 0, 80],
   };
+  const STATUTS = ['classique', 'micro'];
+  // Auto-entrepreneur, taux 2026 en % du chiffre d'affaires : [libellé, cotisations, versement libératoire,
+  // formation professionnelle, taxe pour frais de chambre]. Mêmes valeurs et même source que ../calculs.py
+  // (simulateur officiel de l'Urssaf, relevé le 2026-10-04).
+  const ACTIVITES_MICRO = {
+    artisan_service: ['Artisan — prestations de services', 21.2, 1.7, 0.3, 0.48],
+    artisan_vente: ['Artisan — vente de biens, restauration', 12.3, 1, 0.3, 0.22],
+    commerce_service: ['Commerçant — prestations de services', 21.2, 1.7, 0.1, 0.044],
+    commerce_vente: ['Commerçant — vente de biens, restauration, hébergement', 12.3, 1, 0.1, 0.015],
+    liberal: ['Profession libérale, autres prestations de services (BNC)', 25.6, 2.2, 0.2, 0],
+    cipav: ['Profession libérale réglementée (Cipav)', 23.2, 2.2, 0.2, 0],
+  };
+  const ACTIVITE_DEFAUT = 'artisan_service';
   const REGLAGES = {
+    cotisations_ca_pct: ["Cotisations sociales sur le chiffre d'affaires", 21.2, 60],
+    impot_ca_pct: ["Impôt sur le chiffre d'affaires", 0, 15],
+    cfp_pct: ['Formation professionnelle', 0.3, 5],
+    tfc_pct: ['Taxe pour frais de chambre', 0.48, 5],
     taux_horaire: ['Taux horaire facturé', 55, 10000],
     salaire_horaire: ["Coût d'une heure hors charges", 15, 10000],
     charges_pct: ['Charges sociales', 45, 300],
@@ -109,7 +127,10 @@
   // Taux déduits des réglages de l'entreprise.
   function tauxDerives(reglages) {
     const r = valider(reglages, REGLAGES);
-    const charge = diviser(r.salaire_horaire * (100n * S + r.charges_pct), S * S);
+    const micro = reglages.statut === 'micro';
+    // auto-entrepreneur : pas de charges sur un salaire, mais des cotisations sur le chiffre d'affaires
+    const charge = micro ? centimes(r.salaire_horaire) : diviser(r.salaire_horaire * (100n * S + r.charges_pct), S * S);
+    const chargesCa = micro ? r.cotisations_ca_pct + r.impot_ca_pct + r.cfp_pct + r.tfc_pct : 0n;
     const heures = r.heures_facturables_mois;
     const fixes = heures ? diviser(r.frais_fixes_mensuels * 100n, heures) : 0n;
     const complet = charge + fixes;
@@ -117,7 +138,11 @@
       cout_horaire_charge: euros(charge),
       frais_fixes_heure: euros(fixes),
       cout_heure_complet: euros(complet),
-      cout_horaire_trop_eleve: r.taux_horaire > 0n && complet * S > r.taux_horaire * 100n,
+      charges_ca_pct: valeur(chargesCa),
+      // ce qu'il reste d'une heure facturée au taux horaire, cotisations sur le chiffre d'affaires payées
+      heure_facturee_nette: euros(diviser(r.taux_horaire * (100n * S - chargesCa), S * S)),
+      // complet (centimes) > taux_horaire × (1 − charges ÷ 100)
+      cout_horaire_trop_eleve: r.taux_horaire > 0n && complet * S * S > r.taux_horaire * (100n * S - chargesCa),
     };
   }
 
@@ -128,7 +153,7 @@
     for (const [nom, [, defaut]] of Object.entries(CHAMPS)) vide[nom] = defaut;
     return Object.assign(vide, {
       cout_horaire: d.cout_horaire_charge, frais_fixes_heure: d.frais_fixes_heure, cout_km: r.cout_km,
-      tva_pct: r.tva_pct, marge_cible_pct: r.marge_cible_pct, taux_horaire: r.taux_horaire,
+      tva_pct: r.tva_pct, marge_cible_pct: r.marge_cible_pct, taux_horaire: r.taux_horaire, charges_ca_pct: d.charges_ca_pct,
     });
   }
 
@@ -148,26 +173,38 @@
 
     const marge = prix - coutTotal;
     const fraisFixes = diviser(heures * p.frais_fixes_heure * 100n, S * S * S);
-    const coutComplet = coutTotal + fraisFixes;
+    const base = coutTotal + fraisFixes;                         // coûts qui ne dépendent pas du prix de vente
+    const tauxCa = p.charges_ca_pct;
+    if (p.marge_cible_pct + tauxCa >= 100n * S) throw new Erreur("Marge visée et cotisations sur le chiffre d'affaires : leur total doit rester sous 100 %.");
+    // cotisations et impôt de l'auto-entrepreneur, proportionnels au prix de vente
+    const chargesSur = c => diviser(c * tauxCa, 100n * S);
+    const chargesCa = chargesSur(prix);
+    const coutComplet = base + chargesCa;
     const resultat = prix - coutComplet;
 
     const tvaDe = c => diviser(c * p.tva_pct, 100n * S);
     const tva = tvaDe(prix);
-    // prix pour que le résultat fasse m % du prix : coût complet ÷ (1 − m ÷ 100)
-    const prixPourMarge = m => diviser(coutComplet * 100n * S, 100n * S - m);
-    const prixConseille = prixPourMarge(p.marge_cible_pct);
+    // prix dont « part » % (marge visée + cotisations) reste une fois la base payée : base ÷ (1 − part ÷ 100)
+    const prixPourMarge = part => diviser(base * 100n * S, 100n * S - part);
+    // seuil de rentabilité : plus petit prix dont le résultat n'est pas négatif
+    const resultatA = c => c - base - chargesSur(c);
+    let prixMinimum = prixPourMarge(tauxCa);
+    while (resultatA(prixMinimum) < 0n) prixMinimum += 1n;
+    while (prixMinimum > 0n && resultatA(prixMinimum - 1n) >= 0n) prixMinimum -= 1n;
+    const cible = prixPourMarge(p.marge_cible_pct + tauxCa);
+    const prixConseille = cible > prixMinimum ? cible : prixMinimum;
     const parHeure = c => heures ? diviser(c * S * S, heures) : null;
     const heureVendue = heures && prix ? parHeure(prix - (coutTotal - mainOeuvre)) : null;
 
     let etat;
-    if (prix === 0n) etat = coutComplet === 0n ? 'vide' : 'a_chiffrer';
+    if (prix === 0n) etat = base === 0n ? 'vide' : 'a_chiffrer';
     else if (resultat < 0n) etat = 'deficitaire';
     else if (prix < prixConseille) etat = 'faible';
     else etat = 'rentable';
 
     const alertes = [];
     if (etat === 'deficitaire') {
-      alertes.push({ niveau: 'rouge', texte: `Prestation déficitaire : le prix est inférieur au seuil de ${montant(coutComplet, devise)}. Il manque ${montant(-resultat, devise)}.` });
+      alertes.push({ niveau: 'rouge', texte: `Prestation déficitaire : le prix est inférieur au seuil de ${montant(prixMinimum, devise)}. Il manque ${montant(prixMinimum - prix, devise)}.` });
     } else if (etat === 'faible') {
       alertes.push({ niveau: 'orange', texte: `Marge trop faible : ${nombre(pourcent(resultat, prix))} % au lieu des ${nombre(valeur(p.marge_cible_pct))} % visés. Prix conseillé : ${montant(prixConseille, devise)} HT.` });
     }
@@ -177,8 +214,10 @@
     if (prix && !heures) alertes.push({ niveau: 'info', texte: "Aucune heure saisie : le gain par heure n'est pas calculé." });
 
     const ligne = m => {
-      const prixM = prixPourMarge(BigInt(m) * S);
-      return { marge_pct: m, prix_ht: euros(prixM), prix_ttc: euros(prixM + tvaDe(prixM)), gain: euros(prixM - coutComplet) };
+      const part = BigInt(m) * S + tauxCa;
+      if (part >= 100n * S) return { marge_pct: m, prix_ht: null, prix_ttc: null, gain: null };  // marge impossible avec ce taux
+      const prixM = prixPourMarge(part);
+      return { marge_pct: m, prix_ht: euros(prixM), prix_ttc: euros(prixM + tvaDe(prixM)), gain: euros(prixM - base - chargesSur(prixM)) };
     };
     const ouNul = c => c === null ? null : euros(c);
 
@@ -200,13 +239,15 @@
       taux_marque: pourcent(marge, prix),
       taux_marge: pourcent(marge, coutTotal),
       frais_fixes: euros(fraisFixes),
+      charges_ca_pct: valeur(tauxCa),
+      charges_ca: euros(chargesCa),
       cout_complet: euros(coutComplet),
       resultat: euros(resultat),
       resultat_pct: pourcent(resultat, prix),
       cout_horaire_reel: ouNul(parHeure(coutComplet)),
       benefice_horaire: prix ? ouNul(parHeure(resultat)) : null,
       heure_vendue: ouNul(heureVendue),
-      prix_minimum: euros(coutComplet),
+      prix_minimum: euros(prixMinimum),
       prix_conseille: euros(prixConseille),
       ecart_prix: prix ? euros(prix - prixConseille) : null,
       marge_cible_pct: valeur(p.marge_cible_pct),
@@ -217,5 +258,5 @@
   // montant() reçoit des centimes entiers ; montantNombre() accepte un nombre déjà en euros (affichage, fiche)
   const montantNombre = (x, devise = '€') => montant(BigInt(Math.round(Number(x) * 100)), devise);
 
-  globalThis.Calculs = { CHAMPS, REGLAGES, Erreur, valider, normaliser, tauxDerives, modele, calculer, nombre, montantNombre };
+  globalThis.Calculs = { CHAMPS, REGLAGES, STATUTS, ACTIVITES_MICRO, ACTIVITE_DEFAUT, Erreur, valider, normaliser, tauxDerives, modele, calculer, nombre, montantNombre };
 })();
