@@ -21,7 +21,7 @@
   }
 
   function reglages(base) {
-    const r = { entreprise: '', devise: '€', statut: 'classique', activite: C.ACTIVITE_DEFAUT, verifies: false };
+    const r = { entreprise: '', devise: '€', statut: 'classique', activite: C.ACTIVITE_DEFAUT, profil: C.PROFIL_DEFAUT, verifies: false };
     for (const [nom, [, defaut]] of Object.entries(C.REGLAGES)) r[nom] = defaut;
     return Object.assign(r, base.reglages);
   }
@@ -36,8 +36,8 @@
   // Réglages saisis → réglages enregistrés (mêmes contrôles que enregistrer_reglages de server.py).
   function reglagesValides(d, verifies) {
     const r = { entreprise: texte(d.entreprise, "Nom de l'entreprise", 80), devise: texte(d.devise, 'Devise', 4) || '€', verifies,
-                statut: d.statut || 'classique', activite: d.activite || C.ACTIVITE_DEFAUT };
-    if (!C.STATUTS.includes(r.statut) || !Object.hasOwn(C.ACTIVITES_MICRO, r.activite)) throw new Erreur('Statut ou activité inconnu.');
+                statut: d.statut || 'classique', activite: d.activite || C.ACTIVITE_DEFAUT, profil: d.profil || C.PROFIL_DEFAUT };
+    if (!C.STATUTS.includes(r.statut) || !Object.hasOwn(C.ACTIVITES_MICRO, r.activite) || !Object.hasOwn(C.PROFILS_SARL, r.profil)) throw new Erreur('Statut ou activité inconnu.');
     Object.assign(r, C.normaliser(d, C.REGLAGES));
     C.calculer(C.modele(r));  // refuse des réglages inutilisables (marge visée + cotisations ≥ 100 %)
     return r;
@@ -59,7 +59,7 @@
 
   function etat(base = lire()) {
     const r = reglages(base);
-    return { reglages: r, derives: C.tauxDerives(r), modele: C.modele(r), activites: C.ACTIVITES_MICRO,
+    return { reglages: r, derives: C.tauxDerives(r), modele: C.modele(r), activites: C.ACTIVITES_MICRO, profils: C.PROFILS_SARL,
              prestations: classees(base.prestations).map(p => sortie(p, r.devise)),
              aujourdhui: aujourdhui(), essai: false, local: false, telephone: { actif: false, adresse: null, code: null } };
   }
@@ -107,9 +107,13 @@
       const [, caM, , margeM] = totalMois(base, m, r.devise);
       return { mois: m, ca_ht: caM, marge_brute: margeM };
     });
+    const benefice = Number((marge - charges - r.frais_fixes_mensuels).toFixed(2));
+    // SARL : impôt sur les sociétés estimé sur le bénéfice du mois (null pour les autres statuts)
+    const impot = r.statut === 'sarl' ? C.impotSocietesMensuel(benefice) : null;
     return { mois, nombre: lignes.length, ca_ht: ca, couts, marge_brute: marge,
              marge_pct: ca ? Number((marge / ca * 100).toFixed(1)) : null,
-             charges_ca: charges, frais_fixes: r.frais_fixes_mensuels, benefice: Number((marge - charges - r.frais_fixes_mensuels).toFixed(2)),
+             charges_ca: charges, frais_fixes: r.frais_fixes_mensuels, benefice,
+             impot_societes: impot, benefice_apres_is: impot === null ? null : Number((benefice - impot).toFixed(2)),
              rentables: rang.filter(p => p.resultats.resultat > 0).slice(0, 5).map(resume),
              deficitaires: [...rang].reverse().filter(p => p.resultats.etat === 'deficitaire').map(resume),
              prestations: rang.map(resume), historique };
