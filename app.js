@@ -84,6 +84,8 @@ function afficherFiche() {
     i.value = v || CHAMPS_SANS_VIDE.includes(i.dataset.champ) ? String(v).replace('.', ',') : '';
     i.placeholder = '0';
   });
+  // cotisations sur le chiffre d'affaires : champ montré aux auto-entrepreneurs, ou si la prestation en porte déjà
+  $('#champ-charges-ca').hidden = !(E.reglages.statut === 'micro' || courant.donnees.charges_ca_pct > 0);
   $('#titre-fiche').textContent = courant.id ? courant.nom : 'Nouvelle prestation';
   marquer(false);
   recalculer();
@@ -144,6 +146,7 @@ function rendreResultat() {
     l('Autres coûts', r.cout_autres),
     l('Coût total', r.cout_total, 'total'),
     l('Part des frais fixes', r.frais_fixes),
+    r.charges_ca_pct ? l(`Cotisations et impôt sur le chiffre d'affaires <small>${nb(r.charges_ca_pct)} % du prix</small>`, r.charges_ca) : '',
     l('Coût complet', r.cout_complet, 'total'),
     titre('Vente'),
     l('Prix de vente HT', r.ca_ht, 'total'),
@@ -168,7 +171,7 @@ function rendreResultat() {
      <div><span>Prix conseillé (marge ${nb(r.marge_cible_pct)} %)</span><b>${eur(r.prix_conseille)}</b><span>HT</span></div>
      <div class="ecart">${ecart}</div>`;
   $('#grille').innerHTML = '<tr><th>Marge</th><th>Prix HT</th><th>Prix TTC</th><th>Gain</th></tr>' +
-    r.grille.map(g => `<tr data-prix="${g.prix_ht}" class="${g.marge_pct === r.marge_cible_pct ? 'cible' : ''}">
+    r.grille.map(g => `<tr ${g.prix_ht == null ? '' : `data-prix="${g.prix_ht}"`} class="${g.marge_pct === r.marge_cible_pct ? 'cible' : ''}">
       <td>${g.marge_pct} %</td><td>${eur(g.prix_ht)}</td><td>${eur(g.prix_ttc)}</td><td>${eur(g.gain)}</td></tr>`).join('');
 }
 
@@ -182,7 +185,7 @@ $('#grille').addEventListener('click', e => {
 });
 $('#appliquer-reglages').onclick = () => {
   lireFiche();
-  for (const cle of ['cout_horaire', 'cout_km', 'frais_fixes_heure', 'taux_horaire', 'tva_pct', 'marge_cible_pct']) courant.donnees[cle] = E.modele[cle];
+  for (const cle of ['cout_horaire', 'cout_km', 'frais_fixes_heure', 'taux_horaire', 'tva_pct', 'marge_cible_pct', 'charges_ca_pct']) courant.donnees[cle] = E.modele[cle];
   afficherFiche(); marquer(true);
   avis('Taux de vos réglages actuels appliqués à cette prestation.');
 };
@@ -300,8 +303,9 @@ async function chargerTableau() {
   $('#tuiles').innerHTML =
     tuile('Chiffre d\'affaires HT', eur(t.ca_ht)) + tuile('Coûts des prestations', eur(t.couts)) +
     tuile('Marge brute', eur(t.marge_brute), pct(t.marge_pct) + ' du chiffre d\'affaires') +
+    (t.charges_ca ? tuile('Cotisations sur le chiffre d\'affaires', eur(t.charges_ca), 'auto-entrepreneur : à verser à l\'Urssaf') : '') +
     tuile('Frais fixes du mois', eur(t.frais_fixes), 'd\'après vos réglages') +
-    tuile('Bénéfice estimé', eur(t.benefice), 'marge brute − frais fixes', t.benefice < 0 ? 'deficitaire' : 'rentable');
+    tuile('Bénéfice estimé', eur(t.benefice), t.charges_ca ? 'marge brute − cotisations − frais fixes' : 'marge brute − frais fixes', t.benefice < 0 ? 'deficitaire' : 'rentable');
   const alertes = [];
   if (t.deficitaires.length) alertes.push(['rouge', `${t.deficitaires.length} prestation${t.deficitaires.length > 1 ? 's' : ''} déficitaire${t.deficitaires.length > 1 ? 's' : ''} ce mois-ci.`]);
   if (t.nombre && t.benefice < 0) alertes.push(['orange', `La marge du mois ne couvre pas encore les frais fixes : il manque ${eur(-t.benefice)}.`]);
@@ -332,12 +336,38 @@ $('#tableau').addEventListener('click', e => {
 });
 
 // ---------- réglages ----------
+// Réglages : ce qui dépend du statut choisi (avant même l'enregistrement).
+function afficherStatut() {
+  const micro = $('#statut').value === 'micro';
+  $('#bloc-micro').hidden = !micro;
+  $('#champ-charges').hidden = micro;
+  $('#libelle-salaire').innerHTML = micro ? 'Ce que je veux gagner par heure <small>net, après cotisations</small>'
+                                          : 'Coût d\'une heure <small>salaire brut, hors charges</small>';
+  $('#versement-liberatoire').checked = Number($('[data-reglage=impot_ca_pct]').value.replace(',', '.')) > 0;
+}
+// Choix d'une activité (ou du versement libératoire) : propose les taux officiels, qui restent modifiables.
+function proposerTaux() {
+  const [, cotisations, impot, cfp, tfc] = E.activites[$('#activite').value];
+  const ecrire = (champ, v) => $(`[data-reglage=${champ}]`).value = String(v).replace('.', ',');
+  ecrire('cotisations_ca_pct', cotisations); ecrire('cfp_pct', cfp); ecrire('tfc_pct', tfc);
+  ecrire('impot_ca_pct', $('#versement-liberatoire').checked ? impot : 0);
+}
+$('#statut').onchange = afficherStatut;
+$('#activite').onchange = proposerTaux;
+$('#versement-liberatoire').onchange = proposerTaux;
+$('[data-reglage=impot_ca_pct]').oninput = afficherStatut;
+
 function rendreReglages() {
-  $$('[data-reglage]').forEach(i => i.value = String(E.reglages[i.dataset.reglage]).replace('.', ','));
+  $('#activite').innerHTML = Object.entries(E.activites).map(([cle, a]) => `<option value="${cle}">${h(a[0])}</option>`).join('');
+  $$('[data-reglage]').forEach(i => i.value = i.tagName === 'SELECT' ? E.reglages[i.dataset.reglage] : String(E.reglages[i.dataset.reglage]).replace('.', ','));
+  afficherStatut();
   const d = E.derives;
   $('#r-derives').innerHTML =
-    `Une heure de main-d'œuvre vous coûte <b>${eur(d.cout_horaire_charge)}</b> charges comprises,
-     plus <b>${eur(d.frais_fixes_heure)}</b> de frais fixes, soit <b>${eur(d.cout_heure_complet)}</b> par heure.` +
+    (E.reglages.statut === 'micro'
+      ? `Vous voulez gagner <b>${eur(d.cout_horaire_charge)}</b> par heure,`
+      : `Une heure de main-d'œuvre vous coûte <b>${eur(d.cout_horaire_charge)}</b> charges comprises,`) +
+    ` plus <b>${eur(d.frais_fixes_heure)}</b> de frais fixes, soit <b>${eur(d.cout_heure_complet)}</b> par heure.` +
+    (d.charges_ca_pct ? ` Sur chaque vente, <b>${nb(d.charges_ca_pct)} %</b> du prix partent en cotisations et impôt : une heure facturée ${eur(E.reglages.taux_horaire)} vous laisse <b>${eur(d.heure_facturee_nette)}</b>.` : '') +
     (d.cout_horaire_trop_eleve ? `<div class="alerte rouge">Coût horaire trop élevé : votre heure vous coûte ${eur(d.cout_heure_complet)} et vous la facturez ${eur(E.reglages.taux_horaire)}.</div>` : '');
   // accès téléphone : ne se règle que sur le PC
   const t = E.telephone;
