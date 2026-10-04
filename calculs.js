@@ -30,7 +30,16 @@
     taux_horaire: ['Taux horaire facturé', 0, 10000],
     charges_ca_pct: ["Cotisations sur le chiffre d'affaires", 0, 80],
   };
-  const STATUTS = ['classique', 'micro', 'sarl'];
+  const STATUTS = ['classique', 'micro', 'ei', 'sarl'];
+  // Entreprise individuelle au réel : cotisations proposées, en % de la rémunération nette (voir ../calculs.py)
+  const CHARGES_EI_PCT = 44;
+  // Postes proposés pour détailler les frais fixes mensuels : [clé, libellé]
+  const POSTES_FRAIS = [
+    ['assurance', 'Assurances'], ['local', 'Local, loyer'], ['energie', 'Électricité, eau, chauffage'],
+    ['telephone', 'Téléphone, internet'], ['logiciels', 'Logiciels, abonnements'], ['comptabilite', 'Comptabilité'],
+    ['banque', 'Banque'], ['publicite', 'Publicité'], ['materiel', 'Matériel, outillage'],
+    ['entretien', 'Entretien, réparations'], ['vehicule', 'Véhicule (hors coût au km)'], ['autres', 'Autres'],
+  ];
   // Auto-entrepreneur, taux 2026 en % du chiffre d'affaires : [libellé, cotisations, versement libératoire,
   // formation professionnelle, taxe pour frais de chambre]. Mêmes valeurs et même source que ../calculs.py
   // (simulateur officiel de l'Urssaf, relevé le 2026-10-04).
@@ -61,10 +70,11 @@
     cfp_pct: ['Formation professionnelle', 0.3, 5],
     tfc_pct: ['Taxe pour frais de chambre', 0.48, 5],
     taux_horaire: ['Taux horaire facturé', 55, 10000],
-    salaire_horaire: ["Coût d'une heure hors charges", 15, 10000],
+    remuneration_mensuelle: ['Rémunération par mois', 1800, 10000000],
     charges_pct: ['Charges sociales', 45, 300],
     frais_fixes_mensuels: ['Frais fixes mensuels', 1500, 10000000],
-    heures_facturables_mois: ['Heures facturables par mois', 120, 10000],
+    heures_travaillees_mois: ['Heures travaillées par mois', 150, 10000],
+    taux_facturation_pct: ['Part des heures facturables', 80, 100],
     cout_km: ['Coût au kilomètre', 0.6, 100],
     marge_cible_pct: ['Marge visée', 20, MARGE_MAX],
     tva_pct: ['TVA', 20, 100],
@@ -138,24 +148,71 @@
 
   // Taux déduits des réglages de l'entreprise.
   function tauxDerives(reglages) {
+    reglages = migrer(reglages);
     const r = valider(reglages, REGLAGES);
     const micro = reglages.statut === 'micro';
-    // auto-entrepreneur : pas de charges sur un salaire, mais des cotisations sur le chiffre d'affaires
-    const charge = micro ? centimes(r.salaire_horaire) : diviser(r.salaire_horaire * (100n * S + r.charges_pct), S * S);
+    const remuneration = centimes(r.remuneration_mensuelle);
+    // auto-entrepreneur : pas de charges sur la rémunération, mais des cotisations sur le chiffre d'affaires
+    const cotisations = micro ? 0n : diviser(r.remuneration_mensuelle * r.charges_pct, S * S);
     const chargesCa = micro ? r.cotisations_ca_pct + r.impot_ca_pct + r.cfp_pct + r.tfc_pct : 0n;
-    const heures = r.heures_facturables_mois;
-    const fixes = heures ? diviser(r.frais_fixes_mensuels * 100n, heures) : 0n;
+    const coutRemuneration = remuneration + cotisations;
+    const totalMensuel = coutRemuneration + centimes(r.frais_fixes_mensuels);
+    // les coûts du mois sont portés par les heures que l'on peut vraiment facturer, pas par les heures travaillées
+    const H = r.heures_travaillees_mois * r.taux_facturation_pct;      // heures facturables × 100 × S²
+    const charge = H ? diviser(coutRemuneration * 100n * S * S, H) : 0n;
+    const fixes = H ? diviser(r.frais_fixes_mensuels * 10000n * S, H) : 0n;
     const complet = charge + fixes;
+    const reste = 100n * S - chargesCa;        // part du prix (en %) qui reste, cotisations sur le CA payées
+    const partCible = r.marge_cible_pct + chargesCa;
+    const possible = partCible < 100n * S;
+    const pourPart = (c, part) => diviser(c * 100n * S, 100n * S - part);   // c ÷ (1 − part ÷ 100)
+    const tauxConseille = possible ? pourPart(complet, partCible) : null;
+    const caMinimum = pourPart(totalMensuel, chargesCa);
     return {
+      heures_facturables: versNombre(diviser(H, S * S), 2),
+      cotisations_mensuelles: euros(cotisations),
+      cout_remuneration_mensuel: euros(coutRemuneration),
+      cout_total_mensuel: euros(totalMensuel),
       cout_horaire_charge: euros(charge),
       frais_fixes_heure: euros(fixes),
       cout_heure_complet: euros(complet),
       charges_ca_pct: valeur(chargesCa),
       // ce qu'il reste d'une heure facturée au taux horaire, cotisations sur le chiffre d'affaires payées
-      heure_facturee_nette: euros(diviser(r.taux_horaire * (100n * S - chargesCa), S * S)),
+      heure_facturee_nette: euros(diviser(r.taux_horaire * reste, S * S)),
+      // tarif horaire qui couvre tout juste les coûts, et tarif qui dégage la marge visée
+      taux_minimum: euros(pourPart(complet, chargesCa)),
+      taux_conseille: tauxConseille === null ? null : euros(tauxConseille),
+      // par combien multiplier le coût d'une heure pour obtenir le tarif conseillé
+      coefficient: tauxConseille !== null && complet ? versNombre(diviser(tauxConseille * 100n, complet), 2) : null,
+      // chiffre d'affaires de main-d'œuvre du mois (hors achats refacturés) pour couvrir les coûts / dégager la marge
+      ca_minimum: euros(caMinimum),
+      ca_conseille: possible ? euros(pourPart(totalMensuel, partCible)) : null,
+      // heures à vendre au taux horaire facturé pour couvrir les coûts du mois
+      heures_a_vendre: r.taux_horaire ? versNombre(diviser(caMinimum * S, 10n * r.taux_horaire), 1) : null,
       // complet (centimes) > taux_horaire × (1 − charges ÷ 100)
-      cout_horaire_trop_eleve: r.taux_horaire > 0n && complet * S * S > r.taux_horaire * (100n * S - chargesCa),
+      cout_horaire_trop_eleve: r.taux_horaire > 0n && complet * S * S > r.taux_horaire * reste,
     };
+  }
+
+  const renseigne = v => v !== null && v !== undefined && v !== '';
+
+  // Réglages d'une version antérieure → réglages actuels, sans changer le coût d'une heure (voir migrer de
+  // ../calculs.py) : heures travaillées = anciennes heures facturables, part facturable = 100 %,
+  // rémunération mensuelle = ancien coût par heure × heures facturables.
+  function migrer(reglages) {
+    if (reglages === null || typeof reglages !== 'object' || Array.isArray(reglages)) throw new Erreur('Données illisibles.');
+    const r = { ...reglages };
+    if (!renseigne(r.heures_travaillees_mois) && renseigne(r.heures_facturables_mois)) {
+      r.heures_travaillees_mois = r.heures_facturables_mois;
+      r.taux_facturation_pct = 100;
+    }
+    if (!renseigne(r.remuneration_mensuelle) && renseigne(r.salaire_horaire)) {
+      const lire = cle => decimal(r[cle], REGLAGES[cle][0], REGLAGES[cle][2], REGLAGES[cle][1]);
+      const travaillees = lire('heures_travaillees_mois'), part = lire('taux_facturation_pct');
+      const salaire = decimal(r.salaire_horaire, "Coût d'une heure", 10000);
+      r.remuneration_mensuelle = euros(diviser(salaire * travaillees * part, S * S * S));
+    }
+    return r;
   }
 
   // Impôt sur les sociétés estimé pour un mois de bénéfice (en euros), comme si chaque mois de l'année lui
@@ -169,7 +226,7 @@
 
   // Données d'une nouvelle prestation, pré-remplies avec les réglages de l'entreprise.
   function modele(reglages) {
-    const d = tauxDerives(reglages), r = normaliser(reglages, REGLAGES);
+    const d = tauxDerives(reglages), r = normaliser(migrer(reglages), REGLAGES);
     const vide = {};
     for (const [nom, [, defaut]] of Object.entries(CHAMPS)) vide[nom] = defaut;
     return Object.assign(vide, {
@@ -279,5 +336,5 @@
   // montant() reçoit des centimes entiers ; montantNombre() accepte un nombre déjà en euros (affichage, fiche)
   const montantNombre = (x, devise = '€') => montant(BigInt(Math.round(Number(x) * 100)), devise);
 
-  globalThis.Calculs = { CHAMPS, REGLAGES, STATUTS, ACTIVITES_MICRO, ACTIVITE_DEFAUT, PROFILS_SARL, PROFIL_DEFAUT, impotSocietesMensuel, Erreur, valider, normaliser, tauxDerives, modele, calculer, nombre, montantNombre };
+  globalThis.Calculs = { CHAMPS, REGLAGES, STATUTS, ACTIVITES_MICRO, ACTIVITE_DEFAUT, PROFILS_SARL, PROFIL_DEFAUT, CHARGES_EI_PCT, POSTES_FRAIS, impotSocietesMensuel, migrer, decimal, Erreur, valider, normaliser, tauxDerives, modele, calculer, nombre, montantNombre };
 })();
