@@ -159,7 +159,15 @@
         <select data-reglage="statut" id="statut">
           <option value="classique">Entreprise classique (charges sur les salaires)</option>
           <option value="micro">Auto-entrepreneur / micro-entreprise (charges sur le chiffre d'affaires)</option>
+          <option value="sarl">SARL / EURL (charges sur les rémunérations, impôt sur les sociétés)</option>
         </select></label>
+    </div>
+    <div id="bloc-sarl" hidden>
+      <div class="champs">
+        <label class="large">Qui fait le travail ? <small>remplit le taux de charges plus bas, que vous pouvez corriger</small>
+          <select data-reglage="profil" id="profil"></select></label>
+      </div>
+      <p class="aide">En SARL il n'y a pas de taux unique : ces pourcentages sont des ordres de grandeur 2026 tirés des simulateurs de l'Urssaf. Pour votre chiffre exact : <a href="https://mon-entreprise.urssaf.fr/simulateurs/eurl" target="_blank" rel="noopener">gérant majoritaire</a>, <a href="https://mon-entreprise.urssaf.fr/simulateurs/sasu" target="_blank" rel="noopener">gérant minoritaire ou égalitaire</a>, <a href="https://mon-entreprise.urssaf.fr/simulateurs/salaire-brut-net" target="_blank" rel="noopener">salarié</a>. Le tableau de bord ajoute l'impôt sur les sociétés estimé (15 % jusqu'à 42 500 € de bénéfice par an, 25 % au-delà).</p>
     </div>
     <div id="bloc-micro" hidden>
       <div class="champs">
@@ -178,7 +186,7 @@
     <h3>Ce que me coûte une heure de travail</h3>
     <div class="champs">
       <label><span id="libelle-salaire">Coût d'une heure <small>salaire brut, hors charges</small></span><input data-reglage="salaire_horaire" inputmode="decimal"></label>
-      <label id="champ-charges">Charges sociales % <small>sur le salaire</small><input data-reglage="charges_pct" inputmode="decimal"></label>
+      <label id="champ-charges"><span id="libelle-charges">Charges sociales % <small>sur le salaire</small></span><input data-reglage="charges_pct" inputmode="decimal"></label>
       <label>Frais fixes par mois <small>loyer, assurances, abonnements…</small><input data-reglage="frais_fixes_mensuels" inputmode="decimal"></label>
       <label>Heures facturables par mois<input data-reglage="heures_facturables_mois" inputmode="decimal"></label>
     </div>
@@ -216,7 +224,7 @@
     <h2>Application</h2>
     <button type="button" id="installer" class="principal" hidden>Installer sur ce téléphone</button>
     <p class="aide" id="aide-installation">Pour l'avoir comme une application, avec son icône : ouvrez le menu du navigateur (⋮ sur Android, bouton Partager sur iPhone) puis « Ajouter à l'écran d'accueil ».</p>
-    <p class="aide">Une fois ouverte une première fois, l'application fonctionne sans connexion. Version e2b4c832.</p>
+    <p class="aide">Une fois ouverte une première fois, l'application fonctionne sans connexion. Version af1a8170.</p>
   </div>
 </section>
 </main>
