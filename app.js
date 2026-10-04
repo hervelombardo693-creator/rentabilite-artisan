@@ -305,7 +305,10 @@ async function chargerTableau() {
     tuile('Marge brute', eur(t.marge_brute), pct(t.marge_pct) + ' du chiffre d\'affaires') +
     (t.charges_ca ? tuile('Cotisations sur le chiffre d\'affaires', eur(t.charges_ca), 'auto-entrepreneur : à verser à l\'Urssaf') : '') +
     tuile('Frais fixes du mois', eur(t.frais_fixes), 'd\'après vos réglages') +
-    tuile('Bénéfice estimé', eur(t.benefice), t.charges_ca ? 'marge brute − cotisations − frais fixes' : 'marge brute − frais fixes', t.benefice < 0 ? 'deficitaire' : 'rentable');
+    tuile(t.impot_societes == null ? 'Bénéfice estimé' : 'Bénéfice avant impôt', eur(t.benefice), t.charges_ca ? 'marge brute − cotisations − frais fixes' : 'marge brute − frais fixes', t.benefice < 0 ? 'deficitaire' : 'rentable') +
+    // SARL : impôt sur les sociétés estimé sur le bénéfice du mois
+    (t.impot_societes == null ? '' : tuile('Impôt sur les sociétés estimé', eur(t.impot_societes), '15 % puis 25 % au-delà de 42 500 € par an') +
+      tuile('Bénéfice après impôt', eur(t.benefice_apres_is), 'reste dans la société', t.benefice_apres_is < 0 ? 'deficitaire' : 'rentable'));
   const alertes = [];
   if (t.deficitaires.length) alertes.push(['rouge', `${t.deficitaires.length} prestation${t.deficitaires.length > 1 ? 's' : ''} déficitaire${t.deficitaires.length > 1 ? 's' : ''} ce mois-ci.`]);
   if (t.nombre && t.benefice < 0) alertes.push(['orange', `La marge du mois ne couvre pas encore les frais fixes : il manque ${eur(-t.benefice)}.`]);
@@ -338,11 +341,18 @@ $('#tableau').addEventListener('click', e => {
 // ---------- réglages ----------
 // Réglages : ce qui dépend du statut choisi (avant même l'enregistrement).
 function afficherStatut() {
-  const micro = $('#statut').value === 'micro';
+  const micro = $('#statut').value === 'micro', sarl = $('#statut').value === 'sarl';
   $('#bloc-micro').hidden = !micro;
+  $('#bloc-sarl').hidden = !sarl;
   $('#champ-charges').hidden = micro;
+  const net = sarl && E.profils[$('#profil').value][1] === 'net';  // gérant : on raisonne en rémunération nette
   $('#libelle-salaire').innerHTML = micro ? 'Ce que je veux gagner par heure <small>net, après cotisations</small>'
-                                          : 'Coût d\'une heure <small>salaire brut, hors charges</small>';
+    : net ? 'Rémunération par heure <small>nette, avant cotisations</small>'
+    : sarl ? 'Salaire par heure <small>brut, hors charges patronales</small>'
+    : 'Coût d\'une heure <small>salaire brut, hors charges</small>';
+  $('#libelle-charges').innerHTML = net ? 'Cotisations sociales % <small>en plus de la rémunération nette</small>'
+    : sarl ? 'Charges patronales % <small>en plus du salaire brut</small>'
+    : 'Charges sociales % <small>sur le salaire</small>';
   $('#versement-liberatoire').checked = Number($('[data-reglage=impot_ca_pct]').value.replace(',', '.')) > 0;
 }
 // Choix d'une activité (ou du versement libératoire) : propose les taux officiels, qui restent modifiables.
@@ -352,20 +362,27 @@ function proposerTaux() {
   ecrire('cotisations_ca_pct', cotisations); ecrire('cfp_pct', cfp); ecrire('tfc_pct', tfc);
   ecrire('impot_ca_pct', $('#versement-liberatoire').checked ? impot : 0);
 }
-$('#statut').onchange = afficherStatut;
+// SARL : le choix de qui travaille propose le taux de charges correspondant, qui reste modifiable.
+function proposerCharges() {
+  if ($('#statut').value === 'sarl') $('[data-reglage=charges_pct]').value = String(E.profils[$('#profil').value][2]).replace('.', ',');
+  afficherStatut();
+}
+$('#statut').onchange = proposerCharges;
+$('#profil').onchange = proposerCharges;
 $('#activite').onchange = proposerTaux;
 $('#versement-liberatoire').onchange = proposerTaux;
 $('[data-reglage=impot_ca_pct]').oninput = afficherStatut;
 
 function rendreReglages() {
   $('#activite').innerHTML = Object.entries(E.activites).map(([cle, a]) => `<option value="${cle}">${h(a[0])}</option>`).join('');
+  $('#profil').innerHTML = Object.entries(E.profils).map(([cle, p]) => `<option value="${cle}">${h(p[0])} — environ ${nb(p[2])} % en plus du ${p[1]}</option>`).join('');
   $$('[data-reglage]').forEach(i => i.value = i.tagName === 'SELECT' ? E.reglages[i.dataset.reglage] : String(E.reglages[i.dataset.reglage]).replace('.', ','));
   afficherStatut();
   const d = E.derives;
   $('#r-derives').innerHTML =
     (E.reglages.statut === 'micro'
       ? `Vous voulez gagner <b>${eur(d.cout_horaire_charge)}</b> par heure,`
-      : `Une heure de main-d'œuvre vous coûte <b>${eur(d.cout_horaire_charge)}</b> charges comprises,`) +
+      : `Une heure de main-d'œuvre coûte <b>${eur(d.cout_horaire_charge)}</b> ${E.reglages.statut === 'sarl' ? 'à la société, ' : ''}charges comprises,`) +
     ` plus <b>${eur(d.frais_fixes_heure)}</b> de frais fixes, soit <b>${eur(d.cout_heure_complet)}</b> par heure.` +
     (d.charges_ca_pct ? ` Sur chaque vente, <b>${nb(d.charges_ca_pct)} %</b> du prix partent en cotisations et impôt : une heure facturée ${eur(E.reglages.taux_horaire)} vous laisse <b>${eur(d.heure_facturee_nette)}</b>.` : '') +
     (d.cout_horaire_trop_eleve ? `<div class="alerte rouge">Coût horaire trop élevé : votre heure vous coûte ${eur(d.cout_heure_complet)} et vous la facturez ${eur(E.reglages.taux_horaire)}.</div>` : '');
