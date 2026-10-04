@@ -339,53 +339,122 @@ $('#tableau').addEventListener('click', e => {
 });
 
 // ---------- réglages ----------
-// Réglages : ce qui dépend du statut choisi (avant même l'enregistrement).
+const champReglage = cle => $(`[data-reglage=${cle}]`);
+const ecrireReglage = (cle, v) => champReglage(cle).value = String(v).replace('.', ',');
+const lireNombre = champ => Number(champ.value.replace(/\s/g, '').replace(',', '.')) || 0;
+
+// Ce qui dépend du statut choisi (avant même l'enregistrement).
 function afficherStatut() {
-  const micro = $('#statut').value === 'micro', sarl = $('#statut').value === 'sarl';
+  const statut = $('#statut').value, micro = statut === 'micro', sarl = statut === 'sarl';
   $('#bloc-micro').hidden = !micro;
   $('#bloc-sarl').hidden = !sarl;
+  $('#bloc-ei').hidden = statut !== 'ei';
   $('#champ-charges').hidden = micro;
-  const net = sarl && E.profils[$('#profil').value][1] === 'net';  // gérant : on raisonne en rémunération nette
-  $('#libelle-salaire').innerHTML = micro ? 'Ce que je veux gagner par heure <small>net, après cotisations</small>'
-    : net ? 'Rémunération par heure <small>nette, avant cotisations</small>'
-    : sarl ? 'Salaire par heure <small>brut, hors charges patronales</small>'
-    : 'Coût d\'une heure <small>salaire brut, hors charges</small>';
-  $('#libelle-charges').innerHTML = net ? 'Cotisations sociales % <small>en plus de la rémunération nette</small>'
-    : sarl ? 'Charges patronales % <small>en plus du salaire brut</small>'
-    : 'Charges sociales % <small>sur le salaire</small>';
-  $('#versement-liberatoire').checked = Number($('[data-reglage=impot_ca_pct]').value.replace(',', '.')) > 0;
+  const brut = sarl && E.profils[$('#profil').value][1] === 'brut';  // salarié : on raisonne en salaire brut
+  $('#libelle-salaire').innerHTML = micro ? 'Ce que je veux garder par mois <small>une fois cotisations et frais payés</small>'
+    : brut ? 'Salaire brut par mois <small>hors charges patronales</small>'
+    : statut === 'classique' ? 'Rémunération par mois <small>hors charges</small>'
+    : 'Rémunération souhaitée par mois <small>nette, avant cotisations</small>';
+  $('#libelle-charges').innerHTML = brut ? 'Charges patronales % <small>en plus du salaire brut</small>'
+    : statut === 'classique' ? 'Charges sociales % <small>en plus de la rémunération</small>'
+    : 'Cotisations sociales % <small>en plus de la rémunération nette</small>';
+  $('#aide-remuneration').textContent = micro
+    ? 'Un auto-entrepreneur n\'a pas de salaire brut : indiquez ce que vous voulez garder chaque mois. Les cotisations sont comptées sur le prix de vente, avec les taux ci-dessus.'
+    : brut ? 'Le coût pour la société est le salaire brut plus les charges patronales.'
+    : statut === 'classique' ? 'Le coût est la rémunération plus les charges. Le taux dépend de votre régime : vérifiez votre taux réel.'
+    : 'Un indépendant n\'a pas de salaire brut : indiquez ce que vous voulez vous verser chaque mois, le logiciel y ajoute les cotisations. Le taux dépend de votre régime et de votre revenu : vérifiez votre taux réel.';
+  $('#versement-liberatoire').checked = lireNombre(champReglage('impot_ca_pct')) > 0;
+  $('#champ-tva').hidden = !$('#assujetti-tva').checked;
 }
 // Choix d'une activité (ou du versement libératoire) : propose les taux officiels, qui restent modifiables.
 function proposerTaux() {
   const [, cotisations, impot, cfp, tfc] = E.activites[$('#activite').value];
-  const ecrire = (champ, v) => $(`[data-reglage=${champ}]`).value = String(v).replace('.', ',');
-  ecrire('cotisations_ca_pct', cotisations); ecrire('cfp_pct', cfp); ecrire('tfc_pct', tfc);
-  ecrire('impot_ca_pct', $('#versement-liberatoire').checked ? impot : 0);
+  ecrireReglage('cotisations_ca_pct', cotisations); ecrireReglage('cfp_pct', cfp); ecrireReglage('tfc_pct', tfc);
+  ecrireReglage('impot_ca_pct', $('#versement-liberatoire').checked ? impot : 0);
 }
-// SARL : le choix de qui travaille propose le taux de charges correspondant, qui reste modifiable.
+// Entreprise individuelle, SARL : propose le taux de charges correspondant, qui reste modifiable.
 function proposerCharges() {
-  if ($('#statut').value === 'sarl') $('[data-reglage=charges_pct]').value = String(E.profils[$('#profil').value][2]).replace('.', ',');
+  if ($('#statut').value === 'sarl') ecrireReglage('charges_pct', E.profils[$('#profil').value][2]);
+  if ($('#statut').value === 'ei') ecrireReglage('charges_pct', E.charges_ei_pct);
   afficherStatut();
 }
 $('#statut').onchange = proposerCharges;
 $('#profil').onchange = proposerCharges;
 $('#activite').onchange = proposerTaux;
 $('#versement-liberatoire').onchange = proposerTaux;
-$('[data-reglage=impot_ca_pct]').oninput = afficherStatut;
+$('#assujetti-tva').onchange = e => {
+  if (!e.target.checked) ecrireReglage('tva_pct', 0);
+  else if (!lireNombre(champReglage('tva_pct'))) ecrireReglage('tva_pct', 20);
+  afficherStatut();
+};
+
+// Tout ce qui est saisi dans les réglages, tel quel : c'est le serveur qui contrôle et calcule.
+function saisieReglages() {
+  const corps = { frais_detail: {} };
+  $$('[data-reglage]').forEach(i => corps[i.dataset.reglage] = i.value.trim());
+  $$('[data-poste]').forEach(i => corps.frais_detail[i.dataset.poste] = i.value.trim());
+  return corps;
+}
+
+// Synthèse « Votre rentabilité », d'après des réglages enregistrés ou en cours de saisie.
+function rendreSynthese(d, r) {
+  const micro = r.statut === 'micro';
+  const l = (libelle, valeur, classe = '') => `<tr class="${classe}"><td>${libelle}</td><td>${valeur}</td></tr>`;
+  const heures = v => v == null ? '—' : nb(v) + ' h';
+  const alertes = [];
+  if (!d.heures_facturables) alertes.push(['rouge', 'Aucune heure facturable : indiquez vos heures travaillées et la part que vous pouvez facturer.']);
+  else if (d.cout_horaire_trop_eleve) alertes.push(['rouge', `Votre tarif actuel (${eur(r.taux_horaire)}) est en dessous du taux horaire minimum (${eur(d.taux_minimum)}) : à ce prix, vos heures ne couvrent pas vos coûts.`]);
+  else if (d.taux_conseille != null && r.taux_horaire < d.taux_conseille) alertes.push(['orange', `Votre tarif actuel (${eur(r.taux_horaire)}) couvre vos coûts mais ne dégage pas la marge visée : il faudrait ${eur(d.taux_conseille)}.`]);
+  if (d.taux_conseille == null) alertes.push(['rouge', 'Marge visée impossible : avec les cotisations sur le chiffre d\'affaires, le total atteint 100 % du prix.']);
+  if (d.heures_a_vendre != null && d.heures_facturables && d.heures_a_vendre > d.heures_facturables) alertes.push(['rouge', `À votre tarif actuel il faudrait vendre ${heures(d.heures_a_vendre)} par mois pour couvrir vos coûts, alors que vous n'en avez que ${heures(d.heures_facturables)} de facturables.`]);
+  $('#r-derives').innerHTML = `<h3 style="margin-top:0">Votre rentabilité</h3><table class="chiffres">` + [
+    l('Heures travaillées par mois', heures(r.heures_travaillees_mois)),
+    l('Heures facturables par mois', heures(d.heures_facturables)),
+    l(micro ? 'Ce que vous voulez garder' : 'Rémunération', eur(r.remuneration_mensuelle)),
+    micro ? l('Cotisations et impôt', `${nb(d.charges_ca_pct)} % du prix de vente`) : l('Cotisations estimées', eur(d.cotisations_mensuelles)),
+    l('Frais fixes', eur(r.frais_fixes_mensuels)),
+    l(micro ? 'Coût total mensuel <small>avant cotisations sur le chiffre d\'affaires</small>' : 'Coût total mensuel', eur(d.cout_total_mensuel), 'total'),
+    l('Coût réel par heure facturable <small>' + eur(d.cout_horaire_charge) + ' de rémunération + ' + eur(d.frais_fixes_heure) + ' de frais fixes</small>', eur(d.cout_heure_complet), 'total'),
+    l('Taux horaire minimum <small>en dessous, vous perdez de l\'argent</small>', eur(d.taux_minimum) + ' HT'),
+    l(`Taux horaire conseillé <small>pour ${nb(r.marge_cible_pct)} % de marge${d.coefficient ? ', soit coût × ' + nb(d.coefficient) : ''}</small>`, d.taux_conseille == null ? '—' : eur(d.taux_conseille) + ' HT', 'total'),
+    l('Chiffre d\'affaires à faire par mois <small>main-d\'œuvre seule, hors achats refacturés</small>', `${eur(d.ca_minimum)} au minimum${d.ca_conseille == null ? '' : ', ' + eur(d.ca_conseille) + ' conseillé'}`),
+    l(`Heures à vendre à votre tarif actuel <small>${eur(r.taux_horaire)} HT, pour couvrir vos coûts</small>`, heures(d.heures_a_vendre)),
+    micro ? l(`Ce qu'il vous reste d'une heure facturée ${eur(r.taux_horaire)}`, eur(d.heure_facturee_nette)) : '',
+  ].join('') + '</table>' + alertes.map(a => `<div class="alerte ${a[0]}">${h(a[1])}</div>`).join('');
+  // frais fixes détaillés : le total affiché est la somme calculée
+  const detaille = Object.keys(r.frais_detail).length > 0;
+  champReglage('frais_fixes_mensuels').readOnly = detaille;
+  if (detaille) ecrireReglage('frais_fixes_mensuels', r.frais_fixes_mensuels);
+  $('#aide-frais').textContent = detaille ? 'somme des postes détaillés ci-dessous' : 'loyer, assurances, abonnements…';
+}
+
+// Pendant la saisie : la synthèse est recalculée sans rien enregistrer.
+let numeroApercu = 0, minuterieApercu;
+function apercuReglages() {
+  clearTimeout(minuterieApercu);
+  minuterieApercu = setTimeout(async () => {
+    const n = ++numeroApercu;
+    try {
+      const a = await api('POST', '/api/reglages/apercu', saisieReglages());
+      if (n === numeroApercu) rendreSynthese(a.derives, a.reglages);
+    } catch (e) {
+      if (n === numeroApercu) $('#r-derives').innerHTML = `<div class="alerte rouge">${h(e.message)}</div>`;
+    }
+  }, 200);
+}
+$('#form-reglages').addEventListener('input', () => { afficherStatut(); apercuReglages(); });
+$('#form-reglages').addEventListener('change', apercuReglages);
 
 function rendreReglages() {
   $('#activite').innerHTML = Object.entries(E.activites).map(([cle, a]) => `<option value="${cle}">${h(a[0])}</option>`).join('');
   $('#profil').innerHTML = Object.entries(E.profils).map(([cle, p]) => `<option value="${cle}">${h(p[0])} — environ ${nb(p[2])} % en plus du ${p[1]}</option>`).join('');
+  $('#postes-frais').innerHTML = E.postes_frais.map(([cle, libelle]) => `<label>${h(libelle)}<input data-poste="${cle}" inputmode="decimal" placeholder="0"></label>`).join('');
+  $$('[data-poste]').forEach(i => { const v = E.reglages.frais_detail[i.dataset.poste]; i.value = v ? String(v).replace('.', ',') : ''; });
+  $('#detail-frais').open = Object.keys(E.reglages.frais_detail).length > 0;
   $$('[data-reglage]').forEach(i => i.value = i.tagName === 'SELECT' ? E.reglages[i.dataset.reglage] : String(E.reglages[i.dataset.reglage]).replace('.', ','));
+  $('#assujetti-tva').checked = E.reglages.tva_pct > 0;
   afficherStatut();
-  const d = E.derives;
-  $('#r-derives').innerHTML =
-    (E.reglages.statut === 'micro'
-      ? `Vous voulez gagner <b>${eur(d.cout_horaire_charge)}</b> par heure,`
-      : `Une heure de main-d'œuvre coûte <b>${eur(d.cout_horaire_charge)}</b> ${E.reglages.statut === 'sarl' ? 'à la société, ' : ''}charges comprises,`) +
-    ` plus <b>${eur(d.frais_fixes_heure)}</b> de frais fixes, soit <b>${eur(d.cout_heure_complet)}</b> par heure.` +
-    (d.charges_ca_pct ? ` Sur chaque vente, <b>${nb(d.charges_ca_pct)} %</b> du prix partent en cotisations et impôt : une heure facturée ${eur(E.reglages.taux_horaire)} vous laisse <b>${eur(d.heure_facturee_nette)}</b>.` : '') +
-    (d.cout_horaire_trop_eleve ? `<div class="alerte rouge">Coût horaire trop élevé : votre heure vous coûte ${eur(d.cout_heure_complet)} et vous la facturez ${eur(E.reglages.taux_horaire)}.</div>` : '');
+  rendreSynthese(E.derives, E.reglages);
   // accès téléphone : ne se règle que sur le PC
   const t = E.telephone;
   $('#bloc-telephone').hidden = !E.local;
@@ -403,10 +472,9 @@ $('#telephone-nouveau-code').onclick = () => {
   if (confirm('Changer le code ? Les téléphones déjà reliés devront saisir le nouveau.')) reglerTelephone({ actif: true, nouveau_code: true });
 };
 $('#enregistrer-reglages').onclick = async () => {
-  const corps = {};
-  $$('[data-reglage]').forEach(i => corps[i.dataset.reglage] = i.value.trim());
+  clearTimeout(minuterieApercu); numeroApercu++;
   try {
-    recevoirEtat(await api('POST', '/api/reglages', corps));
+    recevoirEtat(await api('POST', '/api/reglages', saisieReglages()));
     rendreReglages();
     if (!courant.id && !modifie) nouvelle();
     avis('Réglages enregistrés.');
